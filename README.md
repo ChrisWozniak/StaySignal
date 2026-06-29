@@ -80,6 +80,32 @@ The MVP must include:
 9. reward recommendation signal
 10. Qatar market context view
 11. plain-English insight and recommendation boxes
+12. inline help definitions for hotel abbreviations and metrics
+13. day/night visual mode for stronger contrast and low-vision accessibility
+
+## Implemented In Current Build
+
+The current app includes the first usable StaySignal dashboard experience:
+
+- React/Vite frontend app
+- Load Demo Booking Data button
+- Upload Booking CSV flow
+- Load Qatar Market Data button
+- Upload Market CSV flow
+- Booking Quality Score with circular score gauge
+- Low / Medium / High risk label
+- overview metrics for reservations, completed stays, cancellations, cancellation rate, and ADR
+- channel reliability chart
+- lead-time risk chart
+- segment performance table
+- synthetic client profile cards
+- reservation fulfillment score
+- reward eligibility recommendations
+- Qatar market context view with ADR and RevPAR trend chart
+- World Cup/event-context insight card
+- day/night visual mode toggle
+- inline question-mark help definitions for ADR, RevPAR, PAR, TA/TO, GDS, and Occupancy
+- hotel/building icon brand mark
 
 ## Core MVP Features
 
@@ -374,6 +400,7 @@ That is acceptable for phase one.
 Recommended deployment path:
 
 ```bash
+npm install
 npm run build
 npm run deploy
 ```
@@ -495,6 +522,8 @@ The UI should prioritize:
 - calm visual hierarchy
 - readable charts
 - direct operational language
+- accessible contrast
+- quick definitions for industry abbreviations like ADR, RevPAR, TA/TO, and GDS
 
 Avoid making the first screen a marketing landing page. The first screen should be the working dashboard.
 
@@ -527,3 +556,24 @@ Python only for offline data prep
 ```
 
 This path is strong enough for a polished training demo and leaves a clear path toward a production version later.
+
+## Local Development
+
+Run the app locally:
+
+```bash
+npm install
+npm run dev
+```
+
+Then open:
+
+```text
+http://127.0.0.1:5173/StaySignal/
+```
+
+Build for production:
+
+```bash
+npm run build
+```
