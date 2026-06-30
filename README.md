@@ -93,13 +93,22 @@ The current app includes the first usable StaySignal dashboard experience:
 - Load Qatar Market Data button
 - Upload Market CSV flow
 - Booking Quality Score with circular score gauge
+- collapsible Booking Quality Score impact breakdown with risk penalties and reliability/value credits
 - Low / Medium / High risk label
 - overview metrics for reservations, completed stays, cancellations, cancellation rate, and ADR
+- monthly booking summary with Booking Quality Score and cancellation trend
+- country demand analysis with reservation volume, cancellation rate, and ADR
 - channel reliability chart
 - lead-time risk chart
 - segment performance table
 - synthetic client profile cards
 - reservation fulfillment score
+- client risk separator buttons for High, Medium, and Low risk profiles
+- client profile sorting by most recent reservation date within each risk category
+- Reports view with management summary, client/country/channel/month signals, and business action plan
+- basic report export to CSV
+- print-ready report export for browser Save as PDF
+- market report export to CSV and print-ready PDF using the Qatar dataset
 - reward eligibility recommendations
 - Qatar market context view with ADR and RevPAR trend chart
 - World Cup/event-context insight card
@@ -254,6 +263,8 @@ The Qatar view should show market-level performance:
 
 This section helps explain whether performance is driven by volume, pricing power, or event effects.
 
+Current event context note: the MVP World Cup insight is based on the project context and Qatar market data for November and December 2022. The app does not currently check live event calendars or automatically identify major events for every month/year.
+
 ## Later Features
 
 These should come after the MVP:
@@ -273,12 +284,37 @@ These should come after the MVP:
 - payment history
 - staff notes
 - event calendar integration
+- manual event markers for conferences, holidays, sports events, festivals, policy changes, and disruption periods
+- dynamic event-factor analysis that compares before/during/after performance around user-defined or imported events
+- future automatic event detection based on unusual ADR, RevPAR, occupancy, cancellation, or booking-quality spikes
 - export to PDF or PowerPoint
+- custom report generator by client ID, country, channel, month, risk level, or date range
+- printable/exportable business action plan reports
 - global benchmark comparison
 - chatbot for hotel staff
 - mobile app
 
 ## Recommended Tech Stack
+
+## Technical Implementation Summary
+
+The current build is a frontend-only React application. It runs in the browser and does not require a backend or database for the MVP.
+
+CSV parsing details:
+
+- booking CSV files use comma delimiter: `,`
+- `Qatar test input data.csv` uses semicolon delimiter: `;`
+- uploaded CSV files are parsed in the browser
+- bundled demo CSV files are loaded from `public/data`
+
+Main tools and libraries:
+
+- React for the user interface
+- Vite for the local development server and production build
+- Papa Parse for CSV parsing
+- Recharts for charts and dashboard visualizations
+- lucide-react for icons
+- gh-pages for later GitHub Pages deployment
 
 ### Frontend
 
@@ -481,6 +517,8 @@ Deliverables:
 - World Cup/event-impact view
 - value-vs-volume explanation
 
+Event handling in this phase is intentionally limited to known demo context. Dynamic or manual event-factor analysis belongs in a later post-MVP phase.
+
 ### Phase 5: Presentation Polish
 
 Make the app demo-ready.
@@ -506,6 +544,9 @@ Possible deliverables:
 - PMS integration
 - OTA integration
 - ML cancellation model
+- manual event marker workflow
+- imported event calendar support
+- dynamic before/during/after event impact analysis
 - alerting
 - exports
 
