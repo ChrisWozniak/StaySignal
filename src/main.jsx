@@ -87,6 +87,35 @@ const monthNumbers = {
   December: '12',
 };
 
+const bookingRequiredFields = [
+  'reservation_id',
+  'client_id',
+  'is_canceled',
+  'lead_time',
+  'arrival_date_year',
+  'arrival_date_month',
+  'arrival_date_day_of_month',
+  'hotel',
+  'market_segment',
+  'distribution_channel',
+  'deposit_type',
+  'customer_type',
+  'adr',
+  'reservation_status',
+  'previous_cancellations',
+  'previous_bookings_not_canceled',
+];
+
+const qatarRequiredFields = [
+  'Segment',
+  'Date',
+  'Supply',
+  'Demand',
+  'Occupancy Rate',
+  'Average Daily Rate',
+  'Revenue per Available Room',
+];
+
 function toNumber(value, fallback = 0) {
   const parsed = Number(String(value ?? '').replace(/,/g, '').trim());
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -198,6 +227,104 @@ function riskLabel(score) {
   if (score >= 80) return 'Low';
   if (score >= 55) return 'Medium';
   return 'High';
+}
+
+function pickVariant(key, variants) {
+  const text = String(key ?? '');
+  const hash = [...text].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return variants[hash % variants.length];
+}
+
+function riskAction(label, row) {
+  const channel = row?.distributionChannel ?? 'this channel';
+  const leadTime = row?.leadTime ?? 0;
+  const deposit = row?.depositType ?? 'deposit terms';
+  const adr = money(row?.adr ?? 0);
+  const key = `${row?.reservationId}-${label}`;
+
+  if (label === 'Low') {
+    return pickVariant(key, [
+      `Treat as reliable demand. Prepare arrival recognition if inventory allows, especially because the booking shows stronger completion signals.`,
+      `Keep service plan active. This reservation can support staffing and room-readiness assumptions, with optional upgrade or welcome benefit review.`,
+      `Use as a positive arrival opportunity. Confirm preferences and consider breakfast, late checkout, or room upgrade when available.`,
+    ]);
+  }
+
+  if (label === 'Medium') {
+    return pickVariant(key, [
+      `Review before premium commitments. Check ${channel} behavior, ${leadTime}-day lead time, and ${deposit.toLowerCase()} terms.`,
+      `Monitor this booking window. Keep the reservation active, but avoid relying on it for upgrades or staffing until closer to arrival.`,
+      `Use light confirmation workflow. Verify guest intent and payment terms, then decide whether service recognition is appropriate.`,
+    ]);
+  }
+
+  return pickVariant(key, [
+    `Confirm status before operational commitments. Check ${channel}, ${leadTime}-day lead time, and ${deposit.toLowerCase()} exposure.`,
+    `Treat as fragile demand. Prepare a refill plan for this room night and avoid upgrade, staffing, or revenue assumptions until confirmed.`,
+    `Escalate for front-office review. The ${adr} ADR may be valuable, but cancellation/status risk should be checked before arrival planning.`,
+  ]);
+}
+
+function clientAction(client) {
+  const key = `${client.clientId}-${client.riskLabel}`;
+  if (client.riskLabel === 'Low' && client.rewardEligible) {
+    return pickVariant(key, [
+      'Recognize on arrival. Consider room upgrade, breakfast, spa discount, or late checkout if available.',
+      'Protect this relationship. Offer a practical thank-you benefit and encourage future direct booking.',
+      'Use as a loyalty moment. Flag for front desk recognition and match reward size to availability and ADR value.',
+    ]);
+  }
+  if (client.riskLabel === 'Medium') {
+    return pickVariant(key, [
+      `Review before premium recognition. Primary channel: ${client.primaryChannel}.`,
+      'Use a light-touch confirmation before offering upgrades or higher-cost benefits.',
+      'Consider a modest arrival benefit only after reservation status and payment terms look stable.',
+    ]);
+  }
+  return pickVariant(key, [
+    'High-risk profile. Confirm reservation status and payment/cancellation terms before service commitments.',
+    'Route to review queue. Avoid automatic rewards until the stay is confirmed and risk signals improve.',
+    'Use caution before arrival planning. Check cancellation pattern, channel source, and latest reservation status.',
+  ]);
+}
+
+function validateCsvFields(fields, requiredFields, label) {
+  const normalized = new Set((fields || []).map((field) => String(field || '').replace(/^\ufeff/, '').trim()));
+  const missing = requiredFields.filter((field) => !normalized.has(field));
+  return {
+    label,
+    checkedAt: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+    totalFields: normalized.size,
+    requiredCount: requiredFields.length,
+    missing,
+    valid: missing.length === 0,
+  };
+}
+
+function calculateReservationScore(row) {
+  const leadRisk = getLeadBucket(row.leadTime).risk;
+  const channelRisk = channelRiskWeights[row.distributionChannel] ?? 12;
+  const segmentRisk = marketRiskWeights[row.marketSegment] ?? 10;
+  const channelPenalty = Math.max(channelRisk, segmentRisk);
+  const depositPenalty = row.depositType === 'No Deposit' ? 8 : row.depositType === 'Non Refund' ? -4 : 4;
+  const historyPenalty = Math.min(24, row.previousCancellations * 10);
+  const completedCredit = Math.min(12, row.previousCompleted * 3);
+  const directCredit = row.distributionChannel === 'Direct' ? 8 : 0;
+  const adrCredit = Math.min(6, Math.max(0, (row.adr - 85) / 12));
+  const statusPenalty = row.isCanceled ? 38 : 0;
+  const score = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(100 - leadRisk - channelPenalty - depositPenalty - historyPenalty - statusPenalty + completedCredit + directCredit + adrCredit),
+    ),
+  );
+  const label = riskLabel(score);
+  return {
+    score,
+    label,
+    action: riskAction(label, row),
+  };
 }
 
 function groupBy(rows, keyFn) {
@@ -399,7 +526,11 @@ function parseCsvText(text, delimiter, transform) {
       delimiter,
       dynamicTyping: false,
       worker: false,
-      complete: (result) => resolve(result.data.map(transform)),
+      complete: (result) =>
+        resolve({
+          rows: result.data.map(transform),
+          fields: result.meta?.fields ?? [],
+        }),
       error: reject,
     });
   });
@@ -420,6 +551,18 @@ async function fetchCsv(url, delimiter, transform) {
 function buildBookingAnalytics(rows) {
   const overview = summarizeGroup('All bookings', rows);
   const score = calculateBookingScore(rows);
+  const reservations = rows
+    .map((row) => {
+      const reservationScore = calculateReservationScore(row);
+      return {
+        ...row,
+        reservationScore: reservationScore.score,
+        riskLabel: reservationScore.label,
+        recommendation: reservationScore.action,
+        leadBucket: getLeadBucket(row.leadTime).label,
+      };
+    })
+    .sort((a, b) => b.arrivalSortKey - a.arrivalSortKey || a.reservationId.localeCompare(b.reservationId));
 
   const byChannel = [...groupBy(rows, (row) => row.distributionChannel).entries()]
     .map(([label, groupRows]) => summarizeGroup(label, groupRows))
@@ -447,6 +590,17 @@ function buildBookingAnalytics(rows) {
     .filter((item) => item.label && item.label !== 'Unknown')
     .sort((a, b) => b.reservations - a.reservations)
     .slice(0, 12);
+  const byHotel = [...groupBy(rows, (row) => row.hotel).entries()]
+    .map(([label, groupRows]) => {
+      const summary = summarizeGroup(label, groupRows);
+      const hotelScore = calculateBookingScore(groupRows);
+      return {
+        ...summary,
+        score: hotelScore.score,
+        riskLabel: hotelScore.label,
+      };
+    })
+    .sort((a, b) => b.reservations - a.reservations);
 
   const clients = [...groupBy(rows, (row) => row.clientId).entries()]
     .map(([clientId, groupRows]) => {
@@ -484,11 +638,30 @@ function buildBookingAnalytics(rows) {
         primaryChannel:
           [...groupBy(groupRows, (row) => row.distributionChannel).entries()].sort((a, b) => b[1].length - a[1].length)[0]?.[0] ??
           'Unknown',
+        history: groupRows
+          .map((row) => {
+            const reservationScore = calculateReservationScore(row);
+            return {
+              reservationId: row.reservationId,
+              arrivalDisplay: row.arrivalDisplay,
+              arrivalSortKey: row.arrivalSortKey,
+              status: row.status,
+              hotel: row.hotel,
+              channel: row.distributionChannel,
+              marketSegment: row.marketSegment,
+              leadTime: row.leadTime,
+              adr: row.adr,
+              score: reservationScore.score,
+              riskLabel: reservationScore.label,
+            };
+          })
+          .sort((a, b) => b.arrivalSortKey - a.arrivalSortKey)
+          .slice(0, 12),
       };
     })
     .sort((a, b) => b.latestReservationSort - a.latestReservationSort || b.fulfillmentScore - a.fulfillmentScore);
 
-  return { overview, score, byChannel, bySegment, byLead, byMonth, byCountry, clients };
+  return { sourceRows: rows, overview, score, reservations, byChannel, bySegment, byLead, byMonth, byCountry, byHotel, clients };
 }
 
 function buildQatarAnalytics(rows) {
@@ -915,6 +1088,37 @@ function FileActions({ onBookingDemo, onQatarDemo, onBookingUpload, onQatarUploa
   );
 }
 
+function ValidationPanel({ bookingValidation, qatarValidation }) {
+  const validations = [bookingValidation, qatarValidation].filter(Boolean);
+  if (!validations.length) return null;
+  return (
+    <section className="validation-grid" aria-label="CSV validation results">
+      {validations.map((validation) => (
+        <article className={`validation-card ${validation.valid ? 'valid' : 'invalid'}`} key={validation.label}>
+          <div>
+            <p className="eyebrow">Data validation</p>
+            <h3>{validation.label}</h3>
+            <span>
+              {validation.valid
+                ? `${validation.requiredCount}/${validation.requiredCount} required fields found`
+                : `${validation.missing.length} required field${validation.missing.length === 1 ? '' : 's'} missing`}
+            </span>
+          </div>
+          <div className="validation-status">
+            {validation.valid ? <CheckCircle2 size={22} /> : <AlertTriangle size={22} />}
+            <strong>{validation.valid ? 'Ready' : 'Needs review'}</strong>
+          </div>
+          {!validation.valid ? (
+            <p className="validation-missing">Missing: {validation.missing.slice(0, 8).join(', ')}</p>
+          ) : (
+            <p className="validation-missing">Checked {validation.totalFields} columns at {validation.checkedAt}.</p>
+          )}
+        </article>
+      ))}
+    </section>
+  );
+}
+
 function Overview({ analytics, bookingRows }) {
   const [showScoreDetails, setShowScoreDetails] = useState(false);
 
@@ -958,6 +1162,36 @@ function Overview({ analytics, bookingRows }) {
           <p>{score.recommendation}</p>
         </div>
         <ShieldCheck size={40} />
+      </section>
+
+      <section className="panel score-summary-panel">
+        <div className="section-title">
+          <p className="eyebrow">How to read the score</p>
+          <h2>
+            Booking Quality Score <HelpTip term="Booking Quality Score" />
+          </h2>
+          <p>
+            The score starts at 100, subtracts risk from cancellations, long lead times, weaker channels, missing deposits,
+            and prior cancellation history, then adds credit for direct bookings and stronger ADR value.
+          </p>
+        </div>
+        <div className="score-legend">
+          <div className="score-legend-item low">
+            <span />
+            <strong>80-100 Low Risk</strong>
+            <p>Demand is more likely to become completed stays.</p>
+          </div>
+          <div className="score-legend-item medium">
+            <span />
+            <strong>55-79 Medium Risk</strong>
+            <p>Review channel, timing, and terms before major commitments.</p>
+          </div>
+          <div className="score-legend-item high">
+            <span />
+            <strong>0-54 High Risk</strong>
+            <p>Confirm status and prepare cancellation/refill actions.</p>
+          </div>
+        </div>
       </section>
 
       <section className={`panel collapsible-panel ${showScoreDetails ? 'open' : ''}`}>
@@ -1037,7 +1271,7 @@ function Overview({ analytics, bookingRows }) {
                 <div>
                   <strong>{client.clientId}</strong>
                   <span>
-                    {client.fulfillmentScore}/100 fulfillment score · {number(client.completed)} completed stays
+                    {client.fulfillmentScore}/100 fulfillment score - {number(client.completed)} completed stays
                   </span>
                 </div>
               </article>
@@ -1165,6 +1399,45 @@ function RiskView({ analytics }) {
 
       <section className="panel">
         <div className="section-title">
+          <h2>Hotel / Property Comparison</h2>
+          <p>Compare properties by booking quality, completed stays, cancellation pressure, and ADR.</p>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Property</th>
+                <th>Score</th>
+                <th>Risk</th>
+                <th>Reservations</th>
+                <th>Completed</th>
+                <th>Cancellations</th>
+                <th>Cancel Rate</th>
+                <th>Avg ADR <HelpTip term="ADR" /></th>
+              </tr>
+            </thead>
+            <tbody>
+              {analytics.byHotel.map((row) => (
+                <tr key={row.label}>
+                  <td>{row.label}</td>
+                  <td>
+                    <span className={`risk-pill ${row.riskLabel.toLowerCase()}`}>{row.score}/100</span>
+                  </td>
+                  <td>{row.riskLabel}</td>
+                  <td>{number(row.reservations)}</td>
+                  <td>{number(row.completed)}</td>
+                  <td>{number(row.cancellations)}</td>
+                  <td>{percent(row.cancellationRate)}</td>
+                  <td>{money(row.adr)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-title">
           <h2>Segment Performance</h2>
           <p>Use this to see whether certain market segments create volume, reliable stays, or cancellation exposure.</p>
         </div>
@@ -1206,9 +1479,11 @@ function ClientsView({ analytics }) {
   const [query, setQuery] = useState('');
   const [riskFilter, setRiskFilter] = useState('Low');
   const [visibleCount, setVisibleCount] = useState(60);
+  const [selectedClientId, setSelectedClientId] = useState('');
 
   React.useEffect(() => {
     setVisibleCount(60);
+    setSelectedClientId('');
   }, [query, riskFilter]);
 
   if (!analytics) return <Overview analytics={null} bookingRows={[]} />;
@@ -1263,7 +1538,7 @@ function ClientsView({ analytics }) {
         <div className="client-grid">
           {clients.map((client) => (
             <article
-              className={`client-card ${client.rewardEligible ? 'reward' : ''} risk-${client.riskLabel.toLowerCase()}`}
+              className={`client-card ${selectedClientId === client.clientId ? 'selected' : ''} ${client.rewardEligible ? 'reward' : ''} risk-${client.riskLabel.toLowerCase()}`}
               key={client.clientId}
             >
               <div className="client-card-head">
@@ -1279,19 +1554,157 @@ function ClientsView({ analytics }) {
                 <span>{money(client.adr)} avg ADR</span>
                 <span>Latest reservation: {client.latestReservationDate}</span>
               </div>
-              <p className="client-note">
-                {client.riskLabel === 'Low' && client.rewardEligible
-                  ? `Recognize on arrival. Consider upgrade, breakfast, spa discount, or late checkout if available.`
-                  : client.riskLabel === 'Medium'
-                    ? `Review before offering premium recognition. Primary channel: ${client.primaryChannel}.`
-                    : `High-risk profile. Confirm reservation status and payment/cancellation terms before service commitments.`}
-              </p>
+              <p className="client-note">{clientAction(client)}</p>
+              <button
+                type="button"
+                className="inline-action"
+                onClick={() => setSelectedClientId((current) => (current === client.clientId ? '' : client.clientId))}
+                aria-expanded={selectedClientId === client.clientId}
+              >
+                {selectedClientId === client.clientId ? 'Hide History' : 'View History'}
+              </button>
+              {selectedClientId === client.clientId ? (
+                <div className="inline-history">
+                  <div className="inline-history-head">
+                    <strong>Recent reservation history</strong>
+                    <span>{number(client.history.length)} recent rows shown</span>
+                  </div>
+                  <div className="inline-history-list">
+                    {client.history.map((reservation) => (
+                      <div className="history-row" key={reservation.reservationId}>
+                        <div>
+                          <strong>{reservation.reservationId}</strong>
+                          <span>{reservation.arrivalDisplay} - {reservation.status}</span>
+                        </div>
+                        <div>
+                          <span>{reservation.channel}</span>
+                          <span>{number(reservation.leadTime)} days - {money(reservation.adr)}</span>
+                        </div>
+                        <span className={`risk-pill ${reservation.riskLabel.toLowerCase()}`}>{reservation.score}/100</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </article>
           ))}
         </div>
         {filteredClients.length > visibleCount ? (
           <button type="button" className="show-more-button" onClick={() => setVisibleCount((count) => count + 60)}>
             Show More {riskFilter} Risk Clients
+          </button>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
+function ReservationsView({ analytics }) {
+  const [riskFilter, setRiskFilter] = useState('High');
+  const [query, setQuery] = useState('');
+  const [visibleCount, setVisibleCount] = useState(80);
+
+  React.useEffect(() => {
+    setVisibleCount(80);
+  }, [query, riskFilter]);
+
+  if (!analytics) return <Overview analytics={null} bookingRows={[]} />;
+
+  const riskCounts = analytics.reservations.reduce(
+    (counts, reservation) => {
+      counts[reservation.riskLabel] += 1;
+      return counts;
+    },
+    { Low: 0, Medium: 0, High: 0 },
+  );
+  const filteredReservations = analytics.reservations
+    .filter((reservation) => riskFilter === 'All' || reservation.riskLabel === riskFilter)
+    .filter((reservation) => {
+      const search = query.toLowerCase();
+      return (
+        reservation.reservationId.toLowerCase().includes(search) ||
+        reservation.clientId.toLowerCase().includes(search) ||
+        reservation.country.toLowerCase().includes(search)
+      );
+    });
+  const reservations = filteredReservations.slice(0, visibleCount);
+
+  return (
+    <div className="view-stack">
+      <section className="panel">
+        <div className="section-title row-title">
+          <div>
+            <h2>Reservation Risk Worklist</h2>
+            <p>Individual reservation scores help staff decide which upcoming or historical bookings need review.</p>
+          </div>
+          <label className="search-box">
+            <Search size={18} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search reservation, client, country"
+            />
+          </label>
+        </div>
+        <div className="risk-filter-row four" role="group" aria-label="Filter reservations by risk level">
+          {['High', 'Medium', 'Low', 'All'].map((level) => (
+            <button
+              type="button"
+              key={level}
+              className={`risk-filter ${level.toLowerCase()} ${riskFilter === level ? 'active' : ''}`}
+              onClick={() => setRiskFilter(level)}
+            >
+              <span />
+              {level === 'All' ? 'All Risk' : `${level} Risk`}
+              <strong>{level === 'All' ? number(analytics.reservations.length) : number(riskCounts[level])}</strong>
+            </button>
+          ))}
+        </div>
+        <p className="client-sort-note">
+          Showing {number(reservations.length)} of {number(filteredReservations.length)} reservations, sorted newest to
+          oldest.
+        </p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Score</th>
+                <th>Reservation</th>
+                <th>Client</th>
+                <th>Arrival</th>
+                <th>Status</th>
+                <th>Hotel</th>
+                <th>Country</th>
+                <th>Channel</th>
+                <th>Lead</th>
+                <th>Deposit</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reservations.map((reservation) => (
+                <tr key={reservation.reservationId}>
+                  <td>
+                    <span className={`risk-pill ${reservation.riskLabel.toLowerCase()}`}>{reservation.reservationScore}/100</span>
+                  </td>
+                  <td>{reservation.reservationId}</td>
+                  <td>{reservation.clientId}</td>
+                  <td>{reservation.arrivalDisplay}</td>
+                  <td>{reservation.status}</td>
+                  <td>{reservation.hotel}</td>
+                  <td>{reservation.country}</td>
+                  <td>{reservation.distributionChannel}</td>
+                  <td>{number(reservation.leadTime)} days</td>
+                  <td>{reservation.depositType}</td>
+                  <td className="wrap-cell">{reservation.recommendation}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {filteredReservations.length > visibleCount ? (
+          <button type="button" className="show-more-button" onClick={() => setVisibleCount((count) => count + 80)}>
+            Show More Reservations
           </button>
         ) : null}
       </section>
@@ -1368,6 +1781,30 @@ function MarketView({ qatarAnalytics, qatarRows }) {
 }
 
 function ReportsView({ analytics, qatarAnalytics, qatarRows }) {
+  const [reportClientId, setReportClientId] = useState('');
+  const [reportCountry, setReportCountry] = useState('All');
+  const [reportChannel, setReportChannel] = useState('All');
+  const [reportRisk, setReportRisk] = useState('All');
+
+  const filteredBookingRows = useMemo(() => {
+    if (!analytics) return [];
+    return analytics.sourceRows.filter((row) => {
+      const reservationScore = calculateReservationScore(row);
+      const clientMatches = reportClientId
+        ? row.clientId.toLowerCase().includes(reportClientId.toLowerCase())
+        : true;
+      const countryMatches = reportCountry === 'All' || row.country === reportCountry;
+      const channelMatches = reportChannel === 'All' || row.distributionChannel === reportChannel;
+      const riskMatches = reportRisk === 'All' || reservationScore.label === reportRisk;
+      return clientMatches && countryMatches && channelMatches && riskMatches;
+    });
+  }, [analytics, reportChannel, reportClientId, reportCountry, reportRisk]);
+
+  const filteredAnalytics = useMemo(
+    () => (filteredBookingRows.length ? buildBookingAnalytics(filteredBookingRows) : null),
+    [filteredBookingRows],
+  );
+
   if (!analytics && !qatarAnalytics) {
     return (
       <section className="empty-state">
@@ -1378,8 +1815,10 @@ function ReportsView({ analytics, qatarAnalytics, qatarRows }) {
     );
   }
 
-  const report = analytics ? buildBusinessReport(analytics) : null;
+  const report = filteredAnalytics ? buildBusinessReport(filteredAnalytics) : null;
   const marketReport = qatarAnalytics ? buildMarketReport(qatarAnalytics, qatarRows) : null;
+  const countryOptions = analytics ? analytics.byCountry.map((item) => item.label) : [];
+  const channelOptions = analytics ? analytics.byChannel.map((item) => item.label) : [];
   const reportDate = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
@@ -1401,12 +1840,12 @@ function ReportsView({ analytics, qatarAnalytics, qatarRows }) {
           <strong>{reportDate}</strong>
           <span>On-screen report</span>
           <div className="report-export-actions">
-            {analytics ? (
+            {filteredAnalytics && report ? (
               <>
-                <button type="button" onClick={() => exportReportPdf(analytics, report, reportDate)}>
+                <button type="button" onClick={() => exportReportPdf(filteredAnalytics, report, reportDate)}>
                   Booking PDF
                 </button>
-                <button type="button" onClick={() => exportReportCsv(analytics, report, reportDate)}>
+                <button type="button" onClick={() => exportReportCsv(filteredAnalytics, report, reportDate)}>
                   Booking CSV
                 </button>
               </>
@@ -1427,8 +1866,80 @@ function ReportsView({ analytics, qatarAnalytics, qatarRows }) {
 
       {analytics ? (
         <>
+          <section className="panel">
+            <div className="section-title">
+              <p className="eyebrow">Report builder</p>
+              <h2>Choose Booking Report Criteria</h2>
+              <p>Filter the management report by client, country, channel, or reservation risk level.</p>
+            </div>
+            <div className="report-filter-grid">
+              <label>
+                <span>Client ID</span>
+                <input
+                  value={reportClientId}
+                  onChange={(event) => setReportClientId(event.target.value)}
+                  placeholder="Any client"
+                />
+              </label>
+              <label>
+                <span>Country</span>
+                <select value={reportCountry} onChange={(event) => setReportCountry(event.target.value)}>
+                  <option value="All">All countries</option>
+                  {countryOptions.map((country) => (
+                    <option value={country} key={country}>
+                      {country}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Channel</span>
+                <select value={reportChannel} onChange={(event) => setReportChannel(event.target.value)}>
+                  <option value="All">All channels</option>
+                  {channelOptions.map((channel) => (
+                    <option value={channel} key={channel}>
+                      {channel}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Reservation Risk</span>
+                <select value={reportRisk} onChange={(event) => setReportRisk(event.target.value)}>
+                  <option value="All">All risk levels</option>
+                  <option value="High">High risk</option>
+                  <option value="Medium">Medium risk</option>
+                  <option value="Low">Low risk</option>
+                </select>
+              </label>
+            </div>
+            <div className="report-scope">
+              <strong>{number(filteredBookingRows.length)} reservations in current report scope</strong>
+              <button
+                type="button"
+                className="inline-action"
+                onClick={() => {
+                  setReportClientId('');
+                  setReportCountry('All');
+                  setReportChannel('All');
+                  setReportRisk('All');
+                }}
+              >
+                Reset Criteria
+              </button>
+            </div>
+          </section>
+          {!filteredAnalytics || !report ? (
+            <section className="empty-state small-empty">
+              <ClipboardList size={42} />
+              <h2>No booking rows match this report criteria.</h2>
+              <p>Reset or adjust the filters to generate a booking report.</p>
+            </section>
+          ) : null}
+          {filteredAnalytics && report ? (
+            <>
           <div className="stat-grid">
-            <StatCard icon={ShieldCheck} label="Booking Quality" value={`${analytics.score.score}/100`} detail={`${analytics.score.label} Risk`} />
+            <StatCard icon={ShieldCheck} label="Booking Quality" value={`${filteredAnalytics.score.score}/100`} detail={`${filteredAnalytics.score.label} Risk`} />
             <StatCard icon={AlertTriangle} label="Highest Risk Channel" value={report.topRiskChannel?.label ?? 'N/A'} detail={`${percent(report.topRiskChannel?.cancellationRate ?? 0)} cancellation`} tone="risk" />
             <StatCard icon={Users} label="Low Risk Clients" value={number(report.clientRiskCounts.Low)} detail="Reward-ready group" tone="good" />
             <StatCard icon={BarChart3} label="Top Country Market" value={report.topVolumeCountry?.label ?? 'N/A'} detail={`${number(report.topVolumeCountry?.reservations ?? 0)} reservations`} />
@@ -1446,7 +1957,7 @@ function ReportsView({ analytics, qatarAnalytics, qatarRows }) {
                   <div>
                     <strong>{item.title}</strong>
                     <p>{item.action}</p>
-                    <span>{item.owner} · {item.reason}</span>
+                    <span>{item.owner} - {item.reason}</span>
                   </div>
                 </article>
               ))}
@@ -1457,11 +1968,15 @@ function ReportsView({ analytics, qatarAnalytics, qatarRows }) {
             <div>
               <div className="section-title">
                 <h2>Booking Report Criteria And Signals</h2>
-                <p>Current report is based on all loaded booking rows and can later become a filterable report builder.</p>
+                <p>Current report reflects the selected booking report criteria above.</p>
               </div>
               <div className="report-list">
-                <p><strong>Scope:</strong> all loaded reservations</p>
-                <p><strong>Score category:</strong> {analytics.score.label} Risk</p>
+                <p><strong>Scope:</strong> {number(filteredBookingRows.length)} selected reservations</p>
+                <p><strong>Client filter:</strong> {reportClientId || 'All clients'}</p>
+                <p><strong>Country filter:</strong> {reportCountry}</p>
+                <p><strong>Channel filter:</strong> {reportChannel}</p>
+                <p><strong>Risk filter:</strong> {reportRisk}</p>
+                <p><strong>Score category:</strong> {filteredAnalytics.score.label} Risk</p>
                 <p><strong>Top volume channel:</strong> {report.topVolumeChannel?.label ?? 'N/A'} ({number(report.topVolumeChannel?.reservations ?? 0)} reservations)</p>
                 <p><strong>Highest risk country:</strong> {report.topRiskCountry?.label ?? 'N/A'} ({percent(report.topRiskCountry?.cancellationRate ?? 0)} cancellation)</p>
                 <p><strong>Weakest month:</strong> {report.weakestMonth?.label ?? 'N/A'} ({Math.round(report.weakestMonth?.score ?? 0)}/100 score)</p>
@@ -1484,6 +1999,8 @@ function ReportsView({ analytics, qatarAnalytics, qatarRows }) {
               </div>
             </div>
           </section>
+            </>
+          ) : null}
         </>
       ) : null}
 
@@ -1508,7 +2025,7 @@ function ReportsView({ analytics, qatarAnalytics, qatarRows }) {
                   <div>
                     <strong>{item.title}</strong>
                     <p>{item.action}</p>
-                    <span>{item.owner} · {item.reason}</span>
+                    <span>{item.owner} - {item.reason}</span>
                   </div>
                 </article>
               ))}
@@ -1536,6 +2053,8 @@ function ReportsView({ analytics, qatarAnalytics, qatarRows }) {
 function App() {
   const [bookingRows, setBookingRows] = useState([]);
   const [qatarRows, setQatarRows] = useState([]);
+  const [bookingValidation, setBookingValidation] = useState(null);
+  const [qatarValidation, setQatarValidation] = useState(null);
   const [activeView, setActiveView] = useState('overview');
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
@@ -1548,8 +2067,10 @@ function App() {
     setLoading(true);
     setNotice('Loading demo booking data...');
     try {
-      const rows = await fetchCsv(bookingDemoUrl, ',', parseBookingRow);
+      const result = await fetchCsv(bookingDemoUrl, ',', parseBookingRow);
+      const rows = result.rows;
       setBookingRows(rows);
+      setBookingValidation(validateCsvFields(result.fields, bookingRequiredFields, 'Booking CSV'));
       setActiveView('overview');
       setNotice(`Loaded ${number(rows.length)} booking rows.`);
     } catch (error) {
@@ -1563,8 +2084,10 @@ function App() {
     setLoading(true);
     setNotice('Loading Qatar market data...');
     try {
-      const rows = await fetchCsv(qatarDemoUrl, ';', parseQatarRow);
+      const result = await fetchCsv(qatarDemoUrl, ';', parseQatarRow);
+      const rows = result.rows;
       setQatarRows(rows);
+      setQatarValidation(validateCsvFields(result.fields, qatarRequiredFields, 'Qatar Market CSV'));
       setActiveView('market');
       setNotice(`Loaded ${number(rows.length)} Qatar market rows.`);
     } catch (error) {
@@ -1580,8 +2103,10 @@ function App() {
     setLoading(true);
     setNotice(`Parsing ${file.name}...`);
     try {
-      const rows = await parseCsvFile(file, ',', parseBookingRow);
+      const result = await parseCsvFile(file, ',', parseBookingRow);
+      const rows = result.rows;
       setBookingRows(rows);
+      setBookingValidation(validateCsvFields(result.fields, bookingRequiredFields, 'Booking CSV'));
       setActiveView('overview');
       setNotice(`Loaded ${number(rows.length)} booking rows from ${file.name}.`);
     } catch (error) {
@@ -1598,8 +2123,10 @@ function App() {
     setLoading(true);
     setNotice(`Parsing ${file.name}...`);
     try {
-      const rows = await parseCsvFile(file, ';', parseQatarRow);
+      const result = await parseCsvFile(file, ';', parseQatarRow);
+      const rows = result.rows;
       setQatarRows(rows);
+      setQatarValidation(validateCsvFields(result.fields, qatarRequiredFields, 'Qatar Market CSV'));
       setActiveView('market');
       setNotice(`Loaded ${number(rows.length)} market rows from ${file.name}.`);
     } catch (error) {
@@ -1613,6 +2140,7 @@ function App() {
   const views = [
     { id: 'overview', label: 'Overview', icon: Hotel },
     { id: 'risk', label: 'Risk', icon: AlertTriangle },
+    { id: 'reservations', label: 'Reservations', icon: CalendarClock },
     { id: 'clients', label: 'Clients', icon: Users },
     { id: 'market', label: 'Market', icon: LineChart },
     { id: 'reports', label: 'Reports', icon: ClipboardList },
@@ -1670,9 +2198,11 @@ function App() {
       />
 
       {notice ? <div className="notice">{loading ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />} {notice}</div> : null}
+      <ValidationPanel bookingValidation={bookingValidation} qatarValidation={qatarValidation} />
 
       {activeView === 'overview' ? <Overview analytics={bookingAnalytics} bookingRows={bookingRows} /> : null}
       {activeView === 'risk' ? <RiskView analytics={bookingAnalytics} /> : null}
+      {activeView === 'reservations' ? <ReservationsView analytics={bookingAnalytics} /> : null}
       {activeView === 'clients' ? <ClientsView analytics={bookingAnalytics} /> : null}
       {activeView === 'market' ? <MarketView qatarAnalytics={qatarAnalytics} qatarRows={qatarRows} /> : null}
       {activeView === 'reports' ? (

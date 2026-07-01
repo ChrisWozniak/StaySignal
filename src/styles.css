@@ -24,7 +24,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -279,6 +280,68 @@ nav button:focus-visible,
   font-weight: 700;
 }
 
+.validation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 14px 0;
+}
+
+.validation-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid rgba(23, 33, 31, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 14px 34px rgba(25, 45, 40, 0.07);
+}
+
+.validation-card h3,
+.validation-card p {
+  margin: 0;
+}
+
+.validation-card h3 {
+  font-size: 1rem;
+}
+
+.validation-card span,
+.validation-missing {
+  color: #66736f;
+}
+
+.validation-card.valid {
+  border-left: 5px solid #15803d;
+}
+
+.validation-card.invalid {
+  border-left: 5px solid #b91c1c;
+}
+
+.validation-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 850;
+}
+
+.validation-card.valid .validation-status {
+  color: #15803d;
+}
+
+.validation-card.invalid .validation-status {
+  color: #b91c1c;
+}
+
+.validation-missing {
+  grid-column: 1 / -1;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }
@@ -528,6 +591,57 @@ nav button:focus-visible,
   gap: 12px;
 }
 
+.score-summary-panel {
+  border-left: 5px solid #0f766e;
+}
+
+.score-legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.score-legend-item {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 8px 10px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid #e1e8e4;
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.score-legend-item > span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.score-legend-item strong {
+  display: block;
+}
+
+.score-legend-item p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #66736f;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.score-legend-item.low > span {
+  background: #15803d;
+}
+
+.score-legend-item.medium > span {
+  background: #facc15;
+}
+
+.score-legend-item.high > span {
+  background: #b91c1c;
+}
+
 .score-factor {
   min-height: 150px;
   padding: 14px;
@@ -665,6 +779,58 @@ nav button:focus-visible,
   border-radius: 8px;
   color: #34423e;
   background: #fbfdfc;
+}
+
+.report-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.report-filter-grid label {
+  display: grid;
+  gap: 7px;
+  color: #34423e;
+  font-weight: 800;
+}
+
+.report-filter-grid input,
+.report-filter-grid select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #d4ddd9;
+  border-radius: 8px;
+  color: #17211f;
+  background: #fff;
+  padding: 0 12px;
+  outline: 0;
+}
+
+.report-scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #e1e8e4;
+  border-radius: 8px;
+  color: #34423e;
+  background: #fbfdfc;
+}
+
+.inline-action {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 14px;
+  padding: 0 12px;
+  border: 2px solid #0f766e;
+  border-radius: 8px;
+  color: #0f4c46;
+  background: #e7f4ef;
+  font-weight: 850;
 }
 
 .risk-mix-list {
@@ -860,6 +1026,10 @@ th {
   margin: 10px 0 14px;
 }
 
+.risk-filter-row.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .risk-filter {
   display: flex;
   min-height: 52px;
@@ -899,6 +1069,10 @@ th {
   background: #15803d;
 }
 
+.risk-filter.all span {
+  background: #66736f;
+}
+
 .risk-filter.active {
   border-color: #0f4c46;
   box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.14);
@@ -915,6 +1089,10 @@ th {
   border: 1px solid #e1e8e4;
   border-radius: 8px;
   background: #fff;
+}
+
+.client-card.selected {
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.14);
 }
 
 .client-card.risk-low {
@@ -959,6 +1137,34 @@ th {
   color: #17211f;
 }
 
+.risk-pill {
+  display: inline-flex;
+  min-width: 70px;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+}
+
+.risk-pill.high {
+  background: #b91c1c;
+}
+
+.risk-pill.medium {
+  color: #17211f;
+  background: #facc15;
+}
+
+.risk-pill.low {
+  background: #15803d;
+}
+
 .client-card-head p,
 .client-card-head strong {
   display: block;
@@ -987,10 +1193,98 @@ th {
   font-size: 0.92rem;
 }
 
+.compact-stats {
+  margin-bottom: 18px;
+}
+
+.wrap-cell {
+  max-width: 360px;
+  white-space: normal;
+  line-height: 1.35;
+}
+
 .client-note {
   margin: 14px 0 0;
   color: #34423e;
   line-height: 1.45;
+}
+
+.inline-history {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #dfe8e4;
+}
+
+.inline-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inline-history-head strong,
+.inline-history-head span {
+  display: block;
+}
+
+.inline-history-head span {
+  color: #66736f;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.inline-history-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #e1e8e4;
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.history-row strong,
+.history-row span {
+  display: block;
+}
+
+.history-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-row span {
+  color: #66736f;
+  font-size: 0.84rem;
+}
+
+.history-row .risk-pill {
+  display: flex;
+  width: 76px;
+  min-width: 76px;
+  height: 34px;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.history-row .risk-pill.medium {
+  color: #17211f;
 }
 
 .show-more-button {
@@ -1014,6 +1308,10 @@ th {
   padding: 40px;
   color: #4b5b56;
   text-align: center;
+}
+
+.small-empty {
+  min-height: 240px;
 }
 
 .empty-state h2 {
@@ -1050,6 +1348,7 @@ th {
 .theme-night .panel,
 .theme-night .empty-state,
 .theme-night .notice,
+.theme-night .validation-card,
 .theme-night .stat-card,
 .theme-night .client-card,
 .theme-night .client-mini,
@@ -1164,6 +1463,14 @@ th {
   color: #d8e7e2;
 }
 
+.theme-night .validation-card span,
+.theme-night .validation-missing,
+.theme-night .report-filter-grid label,
+.theme-night .inline-history-head span,
+.theme-night .history-row span {
+  color: #d8e7e2;
+}
+
 .theme-night .score-factor {
   border-color: rgba(226, 232, 240, 0.18);
   background: rgba(6, 20, 18, 0.88);
@@ -1199,7 +1506,10 @@ th {
 
 .theme-night .action-step,
 .theme-night .report-list p,
-.theme-night .risk-mix {
+.theme-night .risk-mix,
+.theme-night .report-scope,
+.theme-night .history-row,
+.theme-night .score-legend-item {
   border-color: rgba(226, 232, 240, 0.18);
   background: rgba(6, 20, 18, 0.88);
 }
@@ -1217,7 +1527,9 @@ th {
 .theme-night .action-step p,
 .theme-night .report-list p,
 .theme-night .risk-mix p,
-.theme-night .action-step span {
+.theme-night .action-step span,
+.theme-night .report-scope,
+.theme-night .score-legend-item p {
   color: #d8e7e2;
 }
 
@@ -1234,9 +1546,12 @@ th {
   border-bottom-color: rgba(226, 232, 240, 0.16);
 }
 
-.theme-night .search-box input {
+.theme-night .search-box input,
+.theme-night .report-filter-grid input,
+.theme-night .report-filter-grid select {
   color: #f8fafc;
-  background: transparent;
+  border-color: rgba(226, 232, 240, 0.24);
+  background: rgba(9, 26, 23, 0.94);
 }
 
 .theme-night .help-bubble {
@@ -1276,7 +1591,9 @@ th {
   .score-breakdown,
   .risk-filter-row,
   .action-plan-grid,
-  .report-list-grid {
+  .report-list-grid,
+  .report-filter-grid,
+  .validation-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1305,7 +1622,19 @@ th {
   .score-breakdown,
   .risk-filter-row,
   .action-plan-grid,
-  .report-list-grid {
+  .report-list-grid,
+  .report-filter-grid,
+  .validation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .risk-filter-row.four {
+    grid-template-columns: 1fr;
+  }
+
+  .report-scope,
+  .validation-card {
+    align-items: stretch;
     grid-template-columns: 1fr;
   }
 

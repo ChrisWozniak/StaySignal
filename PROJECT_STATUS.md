@@ -89,7 +89,9 @@ Original booking data:
 - Overview, Risk, Clients, Market, and Reports views.
 - Load demo booking data and Qatar market data.
 - Upload custom booking CSV and market CSV files.
+- Validate loaded CSV files against required MVP fields.
 - Booking Quality Score from 0 to 100.
+- Main-page Booking Quality Score explanation with risk ranges.
 - Risk levels with consistent colors:
   - Low risk: green
   - Medium risk: yellow
@@ -99,14 +101,19 @@ Original booking data:
 - Lead-time cancellation risk analysis.
 - Monthly booking summary.
 - Country demand signals.
+- Hotel/property comparison.
+- Reservation-level risk worklist with individual reservation scores.
+- Varied reservation and client action suggestions based on risk level and booking context.
 - Segment performance table.
 - Synthetic client fulfillment profiles.
+- Client profile drill-down with recent reservation history.
 - Client risk filter buttons for High, Medium, and Low risk.
 - Client cards sorted from most recent reservation to oldest within selected risk category.
 - Arrival reward signals for reliable clients.
 - Qatar market performance dashboard.
 - Event-context market comparison for World Cup period in the current demo.
 - Reports view with booking and market business action plans.
+- Booking report criteria filters for client ID, country, channel, and reservation risk level.
 - Export booking reports to CSV and print-ready PDF page.
 - Export market reports to CSV and print-ready PDF page.
 - Day/Night mode for stronger contrast.
@@ -163,6 +170,7 @@ Phase 2 and later can include:
 
 - Saved datasets and persistent user sessions.
 - Database-backed client and reservation history.
+- Flexible import mapping for CSV, Excel, JSON, PMS, OTA, booking-engine, Google Sheets, database, and API sources.
 - Multi-property support.
 - Direct PMS/channel-manager integrations.
 - Custom report builder by client ID, country, channel, date range, segment, and risk level.

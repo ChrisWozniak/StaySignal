@@ -92,20 +92,26 @@ The current app includes the first usable StaySignal dashboard experience:
 - Upload Booking CSV flow
 - Load Qatar Market Data button
 - Upload Market CSV flow
+- CSV validation for required booking and market fields
 - Booking Quality Score with circular score gauge
 - collapsible Booking Quality Score impact breakdown with risk penalties and reliability/value credits
 - Low / Medium / High risk label
 - overview metrics for reservations, completed stays, cancellations, cancellation rate, and ADR
+- reservation-level risk worklist with individual 0-100 scores
+- varied reservation and client action suggestions based on risk level, channel, lead time, deposit status, and value signals
 - monthly booking summary with Booking Quality Score and cancellation trend
 - country demand analysis with reservation volume, cancellation rate, and ADR
+- hotel/property comparison by score, cancellations, completed stays, and ADR
 - channel reliability chart
 - lead-time risk chart
 - segment performance table
 - synthetic client profile cards
+- client drill-down with recent reservation history
 - reservation fulfillment score
 - client risk separator buttons for High, Medium, and Low risk profiles
 - client profile sorting by most recent reservation date within each risk category
 - Reports view with management summary, client/country/channel/month signals, and business action plan
+- booking report criteria filters for client ID, country, channel, and reservation risk level
 - basic report export to CSV
 - print-ready report export for browser Save as PDF
 - market report export to CSV and print-ready PDF using the Qatar dataset
@@ -164,6 +170,31 @@ Output:
 - plain-English recommendation
 
 The MVP should use a rules-based score first. A machine-learning model can come later.
+
+Current scoring logic:
+
+- The score starts at 100.
+- The app subtracts risk penalties for cancellation pressure, long lead times, higher-risk channels/segments, no-deposit exposure, and prior cancellation history.
+- The app adds reliability/value credits for direct-booking strength and stronger ADR value.
+- The final number is clamped between 0 and 100 so the score is always easy to read.
+
+Current risk ranges:
+
+- 80-100: Low Risk
+- 55-79: Medium Risk
+- 0-54: High Risk
+
+Current score drivers:
+
+- cancellation pressure: higher cancellation rates reduce confidence that bookings become stays
+- lead-time risk: long-lead reservations usually carry more uncertainty
+- channel mix risk: third-party or undefined channels can be more fragile than direct bookings
+- deposit exposure: no-deposit bookings reduce commitment confidence
+- prior cancellation history: previous cancellation behavior lowers reliability
+- direct-booking strength: direct demand receives a positive credit
+- ADR value signal: stronger ADR can offset some risk because higher-value demand matters operationally
+
+Reservation-level scoring uses similar rules at the individual booking level. It considers lead time, channel/segment risk, deposit type, prior cancellations, prior completed bookings, direct-booking status, ADR value, and whether the row is already canceled. This gives staff a worklist for which reservations need confirmation, review, or recognition.
 
 ### 3. Dashboard Overview
 
@@ -293,6 +324,106 @@ These should come after the MVP:
 - global benchmark comparison
 - chatbot for hotel staff
 - mobile app
+
+### Future Multi-Format Data Import
+
+The current MVP uses CSV because CSV is simple, browser-friendly, and works well for a GitHub Pages demo. In a later production build, StaySignal should support user data in different formats through a flexible import and mapping layer.
+
+Future supported formats can include:
+
+- CSV files with different delimiters, including comma, semicolon, and tab
+- Excel files such as `.xlsx`
+- JSON exports
+- Google Sheets imports
+- PMS exports
+- OTA or channel-manager exports
+- booking-engine exports
+- database or API connections
+
+The important future design principle is normalization. Different hotels may use different column names for the same concept. For example, one file may use `client_id`, another may use `guest_id`, and another may use `customer_number`. StaySignal should convert all of them into one internal structure before scoring.
+
+Future import workflow:
+
+1. User uploads a file or connects a data source.
+2. App detects the format and delimiter where possible.
+3. App shows detected columns.
+4. User maps source columns to StaySignal fields.
+5. App validates required fields and warns about missing fields.
+6. App saves the mapping as a reusable import template.
+7. Dashboard runs the same scoring and reporting logic on the normalized data.
+
+Example normalized booking fields:
+
+- `reservation_id`
+- `client_id`
+- `arrival_date`
+- `is_canceled`
+- `lead_time`
+- `hotel`
+- `country`
+- `market_segment`
+- `distribution_channel`
+- `deposit_type`
+- `adr`
+- `reservation_status`
+
+This approach keeps the app universal. The dashboard should not depend on every hospitality provider exporting data with the same column names or file format.
+
+### Future Large-Data Architecture
+
+The current MVP processes uploaded CSV data in the browser. That is appropriate for a classroom demo, early prototype, and moderate sample files. For much larger data sets, especially full guest history across years, reward history, money spent, payments, staff notes, and multi-property data, StaySignal should move to a database-backed architecture.
+
+Future data that may need persistent storage:
+
+- guest/client profiles
+- full reservation history
+- completed stays
+- cancellations and no-shows
+- lifetime value and money spent
+- rewards offered and rewards redeemed
+- room upgrades, breakfast, spa discounts, late checkout, and other recognition history
+- payment or deposit status
+- staff notes and service decisions
+- property and market history
+- report history and saved filters
+
+Recommended future architecture:
+
+```text
+React frontend
+Backend API
+Postgres database
+File import and column-mapping system
+Background processing jobs
+Reporting/export service
+```
+
+Why this matters:
+
+- The browser should not hold and calculate every row when data becomes very large.
+- Large file imports should be processed server-side.
+- Clean summary tables can make dashboards faster.
+- Client profiles can update over time instead of resetting after every upload.
+- Reward history can be stored and used in future decisions.
+- Management can save reports, filters, and action plans.
+
+Possible database and analytics options:
+
+- Supabase/Postgres for an approachable deployed product
+- Neon/Postgres or other managed Postgres providers
+- Firebase for a simpler app-style backend
+- SQLite for local prototypes
+- BigQuery, Snowflake, Redshift, or Databricks for very large enterprise analytics
+
+Best future path for StaySignal:
+
+1. Keep the React dashboard as the user interface.
+2. Add a backend API for imports, scoring, reports, and saved data.
+3. Store normalized reservations, clients, rewards, and spending history in Postgres.
+4. Use background jobs for large uploads and recalculations.
+5. Show prepared dashboard summaries instead of forcing the browser to calculate everything.
+
+This would allow StaySignal to support full client history, reward tracking, lifetime value, multi-property dashboards, saved reports, and faster analysis of much larger hospitality data sets.
 
 ## Recommended Tech Stack
 
